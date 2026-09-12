@@ -211,7 +211,7 @@ if otomatik_mod:
         st.success(
             f"🟢 Otomatik tarama aktif! Sistem her {taramasuresi} dakikada bir piyasayı tarayıp sinyalleri Telegram'a atacak."
         )
-         canli_alan = st.empty()
+        canli_alan = st.empty()
 
         while True:
             with canli_alan.container():
@@ -219,7 +219,6 @@ if otomatik_mod:
                     f"Son tarama zamanı: {time.strftime('%H:%M:%S')} - Bir sonraki tarama bekleniyor..."
                 )
                 sinyal_tarama_ve_bildir()
-            # Belirlenen dakika kadar bekler
             time.sleep(taramasuresi * 60)
             st.rerun()
 
