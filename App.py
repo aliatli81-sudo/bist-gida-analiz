@@ -2,15 +2,15 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# Sayfa Yapılandırması (Telefona tam uyumlu)
+# Sayfa Yapılandırması (Mobil ve Masaüstü Uyumlu)
 st.set_page_config(
     page_title="BİST Hisse Analiz", page_icon="📈", layout="wide"
 )
 
 st.title("📈 BİST Hisse Analiz Robotu")
-st.write("Ekran listenizdeki tüm şirketlerin temel analiz skorları")
+st.write("Sektörel bazda hisselerin temel analiz skorları ve rasyoları")
 
-# Ekran görüntülerinizdeki tüm hisselerin kategorize edilmiş listesi
+# Ekran görüntülerinizdeki tüm gıda & içecek hisseleri
 GIDA_HISSELERI = [
     "AEFES",
     "AKHAN",
@@ -69,6 +69,7 @@ GIDA_HISSELERI = [
     "YYLGD",
 ]
 
+# Perakende & Market Hisseleri
 PERAKENDE_HISSELERI = ["BIMAS", "BIZIM", "CRFSA", "KIMMR", "MGROS", "SOKM"]
 
 
@@ -89,7 +90,7 @@ def hisse_verilerini_getir(hisse_listesi):
             fiyat = info.get("currentPrice", info.get("previousClose", None))
 
             # Skorlama Mantığı (100 üzerinden)
-            skor = 50  # Başlangıç
+            skor = 50  # Başlangıç taban puanı
             if fk and 0 < fk < 10:
                 skor += 15
             elif fk and 10 <= fk < 20:
@@ -125,13 +126,16 @@ def hisse_verilerini_getir(hisse_listesi):
 
     df = pd.DataFrame(veri_listesi)
     if not df.empty:
+        # Skora göre büyükten küçüğe sıralar
         df = df.sort_values(by="Skor (100)", ascending=False).reset_index(
             drop=True
         )
+        # Sıra numarasını 0 yerine 1'den başlatır
+        df.index = df.index + 1
     return df
 
 
-# Sekmeli Yapı
+# Kategori Seçimi
 kategori = st.radio(
     "Sektör Seçin:",
     ["🍎 Gıda & İçecek", "🛒 Perakende / Market"],
@@ -141,14 +145,15 @@ kategori = st.radio(
 if st.button("🔄 Verileri Güncelle"):
     st.cache_data.clear()
 
+# Tablo Gösterimi
 if kategori == "🍎 Gıda & İçecek":
     st.subheader(f"Gıda & İçecek Hisseleri ({len(GIDA_HISSELERI)} Hisse)")
-    with st.spinner("Gıda verileri çekiliyor..."):
+    with st.spinner("Veriler çekiliyor..."):
         df_gida = hisse_verilerini_getir(GIDA_HISSELERI)
         st.dataframe(df_gida, use_container_width=True)
 
 else:
     st.subheader(f"Perakende & Market Hisseleri ({len(PERAKENDE_HISSELERI)} Hisse)")
-    with st.spinner("Perakende verileri çekiliyor..."):
+    with st.spinner("Veriler çekiliyor..."):
         df_perakende = hisse_verilerini_getir(PERAKENDE_HISSELERI)
         st.dataframe(df_perakende, use_container_width=True)
