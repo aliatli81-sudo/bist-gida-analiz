@@ -11,7 +11,7 @@ st.set_page_config(
 
 st.title("📈 BİST Otomatik Sinyal & Bildirim Robotu")
 st.write(
-    "Hisseleri otomatik tarar ve eşik değerlere ulaşan sinyalleri anında Telegram'a gönderir."
+    "Hisseleri otomatik tarar, ekrandaki tabloyu günceller ve sinyalleri Telegram'a gönderir."
 )
 
 
@@ -179,61 +179,72 @@ def hisse_verilerini_getir(hisse_listesi):
     return df
 
 
-def sinyal_tarama_ve_bildir():
-    tum_hisseler = GIDA_HISSELERI + PERAKENDE_HISSELERI
-    df = hisse_verilerini_getir(tum_hisseler)
+def tarama_yap_ve_ekrana_bas(hisse_listesi):
+    df = hisse_verilerini_getir(hisse_listesi)
 
-    al_hisseleri = df[df["Skor (100)"] >= al_esigi]
-    sat_hisseleri = df[df["Skor (100)"] <= sat_esigi]
+    if not df.empty:
+        # Tabloyu ekranda göster
+        st.dataframe(df, use_container_width=True)
 
-    if not al_hisseleri.empty or not sat_hisseleri.empty:
-        mesaj = "🤖 *OTOMATİK SİNYAL BİLDİRİMİ*\n\n"
+        # Telegram Bildirimi İçin Sinyalleri Kontrol Et
+        al_hisseleri = df[df["Skor (100)"] >= al_esigi]
+        sat_hisseleri = df[df["Skor (100)"] <= sat_esigi]
 
-        if not al_hisseleri.empty:
-            mesaj += "🚀 *AL SİNYALİ VERENLER:*\n"
-            for _, row in al_hisseleri.iterrows():
-                mesaj += f"• *{row['Hisse']}* - Skor: {row['Skor (100)']} ({row['Fiyat (TL)']} TL)\n"
-            mesaj += "\n"
+        if (
+            not al_hisseleri.empty or not sat_hisseleri.empty
+        ) and telegram_token:
+            mesaj = "🤖 *OTOMATİK SİNYAL BİLDİRİMİ*\n\n"
 
-        if not sat_hisseleri.empty:
-            mesaj += "⚠️ *SAT SİNYALİ VERENLER:*\n"
-            for _, row in sat_hisseleri.iterrows():
-                mesaj += f"• *{row['Hisse']}* - Skor: {row['Skor (100)']} ({row['Fiyat (TL)']} TL)\n"
+            if not al_hisseleri.empty:
+                mesaj += "🚀 *AL SİNYALİ VERENLER:*\n"
+                for _, row in al_hisseleri.iterrows():
+                    mesaj += f"• *{row['Hisse']}* - Skor: {row['Skor (100)']} ({row['Fiyat (TL)']} TL)\n"
+                mesaj += "\n"
 
-        telegram_bildirim_gonder(telegram_token, telegram_chat_id, mesaj)
+            if not sat_hisseleri.empty:
+                mesaj += "⚠️ *SAT SİNYALİ VERENLER:*\n"
+                for _, row in sat_hisseleri.iterrows():
+                    mesaj += f"• *{row['Hisse']}* - Skor: {row['Skor (100)']} ({row['Fiyat (TL)']} TL)\n"
+
+            telegram_bildirim_gonder(telegram_token, telegram_chat_id, mesaj)
 
 
-# Manuel / Otomatik Mod Yönetimi
+# Sektör Seçimi (Her İki Modda da Görünür)
+kategori = st.radio(
+    "Sektör Seçin:", ["🍎 Gıda & İçecek", "🛒 Perakende / Market"], horizontal=True
+)
+secili_liste = (
+    GIDA_HISSELERI if kategori == "🍎 Gıda & İçecek" else PERAKENDE_HISSELERI
+)
+
+# Çalışma Mantığı
 if otomatik_mod:
     if not telegram_token or not telegram_chat_id:
-        st.error("Otomatik mod için Telegram Token ve Chat ID şarttır!")
+        st.error(
+            "Otomatik bildirim alabilmek için lütfen sol menüden Telegram Token ve Chat ID girin!"
+        )
     else:
         st.success(
-            f"🟢 Otomatik tarama aktif! Sistem her {taramasuresi} dakikada bir piyasayı tarayıp sinyalleri Telegram'a atacak."
+            f"🟢 Otomatik tarama aktif! Sistem her {taramasuresi} dakikada bir tabloyu güncelleyip sinyalleri Telegram'a atacak."
         )
-        canli_alan = st.empty()
 
-        while True:
-            with canli_alan.container():
-                st.info(
-                    f"Son tarama zamanı: {time.strftime('%H:%M:%S')} - Bir sonraki tarama bekleniyor..."
-                )
-                sinyal_tarama_ve_bildir()
-            time.sleep(taramasuresi * 60)
-            st.rerun()
+    canli_bilgi = st.empty()
+    tablo_alani = st.empty()
+
+    while True:
+        with canli_bilgi.container():
+            st.info(
+                f"Son tarama zamanı: {time.strftime('%H:%M:%S')} - Bir sonraki otomatik tarama bekleniyor..."
+            )
+        with tablo_alani.container():
+            tarama_yap_ve_ekrana_bas(secili_liste)
+
+        if not otomatik_mod:
+            break
+
+        time.sleep(taramasuresi * 60)
+        st.rerun()
 
 else:
-    kategori = st.radio(
-        "Sektör Seçin:",
-        ["🍎 Gıda & İçecek", "🛒 Perakende / Market"],
-        horizontal=True,
-    )
-    secili_liste = (
-        GIDA_HISSELERI
-        if kategori == "🍎 Gıda & İçecek"
-        else PERAKENDE_HISSELERI
-    )
-
     with st.spinner("Veriler yükleniyor..."):
-        df_hisseler = hisse_verilerini_getir(secili_liste)
-        st.dataframe(df_hisseler, use_container_width=True)
+        tarama_yap_ve_ekrana_bas(secili_liste)
