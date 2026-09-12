@@ -1,17 +1,19 @@
+import time
 import pandas as pd
 import requests
 import streamlit as st
 import yfinance as yf
 
-# Sayfa Yapılandırması (Mobil ve Masaüstü Uyumlu)
+# Sayfa Yapılandırması
 st.set_page_config(
-    page_title="BİST Hisse Analiz & Sinyal", page_icon="📈", layout="wide"
+    page_title="BİST Canlı Sinyal Robotu", page_icon="📈", layout="wide"
 )
 
-st.title("📈 BİST Hisse Analiz & Sinyal Robotu")
+st.title("📈 BİST Otomatik Sinyal & Bildirim Robotu")
 st.write(
-    "Temel analiz skorları ve Telegram üzerinden anlık telefon bildirim sistemi."
+    "Hisseleri otomatik tarar ve eşik değerlere ulaşan sinyalleri anında Telegram'a gönderir."
 )
+
 
 # Telegram Bildirim Fonksiyonu
 def telegram_bildirim_gonder(bot_token, chat_id, mesaj):
@@ -20,17 +22,20 @@ def telegram_bildirim_gonder(bot_token, chat_id, mesaj):
         payload = {"chat_id": chat_id, "text": mesaj, "parse_mode": "Markdown"}
         try:
             requests.post(url, json=payload, timeout=5)
+            return True
         except Exception as e:
             st.error(f"Telegram bildirimi gönderilemedi: {e}")
+            return False
+    return False
 
 
-# Yan Panel (Sidebar) - Bildirim Ayarları
+# Sidebar - Telegram ve Sinyal Ayarları
 st.sidebar.header("🔔 Telegram Bildirim Ayarları")
 telegram_token = st.sidebar.text_input(
-    "Telegram Bot Token", type="password", help="BotFather'dan alınan token"
+    "Telegram Bot Token", type="password", help="BotFather token adresi"
 )
 telegram_chat_id = st.sidebar.text_input(
-    "Telegram Chat ID", help="userinfobot'tan alınan ID"
+    "Telegram Chat ID", help="userinfobot ID adresi"
 )
 
 st.sidebar.subheader("🎯 Sinyal Eşikleri")
@@ -39,6 +44,12 @@ al_esigi = st.sidebar.slider(
 )
 sat_esigi = st.sidebar.slider(
     "SAT Sinyali için Max. Skor", min_value=0, max_value=60, value=40
+)
+
+st.sidebar.subheader("🤖 Otomasyon Ayarları")
+otomatik_mod = st.sidebar.checkbox("🚀 OTOMATİK TARAMAYI BAŞLAT")
+taramasuresi = st.sidebar.number_input(
+    "Tarama Sıklığı (Dakika)", min_value=1, max_value=60, value=5
 )
 
 # Hisse Listeleri
@@ -103,7 +114,6 @@ GIDA_HISSELERI = [
 PERAKENDE_HISSELERI = ["BIMAS", "BIZIM", "CRFSA", "KIMMR", "MGROS", "SOKM"]
 
 
-@st.cache_data(ttl=3600)
 def hisse_verilerini_getir(hisse_listesi):
     veri_listesi = []
 
@@ -112,15 +122,14 @@ def hisse_verilerini_getir(hisse_listesi):
             ticker = yf.Ticker(f"{hisse}.IS")
             info = ticker.info
 
-            # Temel Göstergeler
             fk = info.get("trailingPE", None)
             pddd = info.get("priceToBook", None)
             roe = info.get("returnOnEquity", None)
             kar_buyume = info.get("earningsQuarterlyGrowth", None)
             fiyat = info.get("currentPrice", info.get("previousClose", None))
 
-            # Skorlama Mantığı (100 üzerinden)
-            skor = 50  # Başlangıç taban puanı
+            # Skorlama
+            skor = 50
             if fk and 0 < fk < 10:
                 skor += 15
             elif fk and 10 <= fk < 20:
@@ -136,7 +145,6 @@ def hisse_verilerini_getir(hisse_listesi):
             if kar_buyume and kar_buyume > 0.15:
                 skor += 10
 
-            # Sinyal Durumu
             sinyal = "NÖTR ⚖️"
             if skor >= al_esigi:
                 sinyal = "AL 🚀"
@@ -167,58 +175,66 @@ def hisse_verilerini_getir(hisse_listesi):
         df = df.sort_values(by="Skor (100)", ascending=False).reset_index(
             drop=True
         )
-        df.index = df.index + 1  # 1'den başlar
+        df.index = df.index + 1
     return df
 
 
-# Kategori Seçimi
-kategori = st.radio(
-    "Sektör Seçin:",
-    ["🍎 Gıda & İçecek", "🛒 Perakende / Market"],
-    horizontal=True,
-)
+def sinyal_tarama_ve_bildir():
+    tum_hisseler = GIDA_HISSELERI + PERAKENDE_HISSELERI
+    df = hisse_verilerini_getir(tum_hisseler)
 
-col1, col2 = st.columns([1, 4])
-with col1:
-    if st.button("🔄 Verileri Güncelle"):
-        st.cache_data.clear()
+    al_hisseleri = df[df["Skor (100)"] >= al_esigi]
+    sat_hisseleri = df[df["Skor (100)"] <= sat_esigi]
 
-# Veri Getirme ve Gösterim
-secili_liste = (
-    GIDA_HISSELERI if kategori == "🍎 Gıda & İçecek" else PERAKENDE_HISSELERI
-)
-st.subheader(f"{kategori} Hisseleri ({len(secili_liste)} Hisse)")
+    if not al_hisseleri.empty or not sat_hisseleri.empty:
+        mesaj = "🤖 *OTOMATİK SİNYAL BİLDİRİMİ*\n\n"
 
-with st.spinner("Hisse verileri analiz ediliyor..."):
-    df_hisseler = hisse_verilerini_getir(secili_liste)
-    st.dataframe(df_hisseler, use_container_width=True)
+        if not al_hisseleri.empty:
+            mesaj += "🚀 *AL SİNYALİ VERENLER:*\n"
+            for _, row in al_hisseleri.iterrows():
+                mesaj += f"• *{row['Hisse']}* - Skor: {row['Skor (100)']} ({row['Fiyat (TL)']} TL)\n"
+            mesaj += "\n"
 
-# Telefon Bildirimi Gönderme Butonu
-with col2:
-    if st.button("📲 Telefonuma Sinyal Bildirimi Gönder"):
-        if not telegram_token or not telegram_chat_id:
-            st.warning(
-                "Lütfen sol menüden Telegram Token ve Chat ID bilgilerinizi girin!"
-            )
-        else:
-            al_hisseleri = df_hisseler[df_hisseler["Skor (100)"] >= al_esigi]
-            sat_hisseleri = df_hisseler[df_hisseler["Skor (100)"] <= sat_esigi]
+        if not sat_hisseleri.empty:
+            mesaj += "⚠️ *SAT SİNYALİ VERENLER:*\n"
+            for _, row in sat_hisseleri.iterrows():
+                mesaj += f"• *{row['Hisse']}* - Skor: {row['Skor (100)']} ({row['Fiyat (TL)']} TL)\n"
 
-            mesaj = f"📊 *BİST {kategori} Sinyal Raporu*\n\n"
+        telegram_bildirim_gonder(telegram_token, telegram_chat_id, mesaj)
 
-            if not al_hisseleri.empty:
-                mesaj += "🚀 *AL SİNYALİ VERENLER:*\n"
-                for _, row in al_hisseleri.iterrows():
-                    mesaj += f"• *{row['Hisse']}* - Skor: {row['Skor (100)']} (Fiyat: {row['Fiyat (TL)']} TL)\n"
-                mesaj += "\n"
 
-            if not sat_hisseleri.empty:
-                mesaj += "⚠️ *SAT SİNYALİ VERENLER:*\n"
-                for _, row in sat_hisseleri.iterrows():
-                    mesaj += f"• *{row['Hisse']}* - Skor: {row['Skor (100)']} (Fiyat: {row['Fiyat (TL)']} TL)\n"
+# Manuel / Otomatik Mod Yönetimi
+if otomatik_mod:
+    if not telegram_token or not telegram_chat_id:
+        st.error("Otomatik mod için Telegram Token ve Chat ID şarttır!")
+    else:
+        st.success(
+            f"🟢 Otomatik tarama aktif! Sistem her {taramasuresi} dakikada bir piyasayı tarayıp sinyalleri Telegram'a atacak."
+        )
+         canli_alan = st.empty()
 
-            if al_hisseleri.empty and sat_hisseleri.empty:
-                mesaj += "Belirlediğiniz eşik değerlerinde AL veya SAT sinyali veren hisse bulunamadı."
+        while True:
+            with canli_alan.container():
+                st.info(
+                    f"Son tarama zamanı: {time.strftime('%H:%M:%S')} - Bir sonraki tarama bekleniyor..."
+                )
+                sinyal_tarama_ve_bildir()
+            # Belirlenen dakika kadar bekler
+            time.sleep(taramasuresi * 60)
+            st.rerun()
 
-            telegram_bildirim_gonder(telegram_token, telegram_chat_id, mesaj)
-            st.success("Sinyal bildirimi Telegram hesabınıza gönderildi! 📱")
+else:
+    kategori = st.radio(
+        "Sektör Seçin:",
+        ["🍎 Gıda & İçecek", "🛒 Perakende / Market"],
+        horizontal=True,
+    )
+    secili_liste = (
+        GIDA_HISSELERI
+        if kategori == "🍎 Gıda & İçecek"
+        else PERAKENDE_HISSELERI
+    )
+
+    with st.spinner("Veriler yükleniyor..."):
+        df_hisseler = hisse_verilerini_getir(secili_liste)
+        st.dataframe(df_hisseler, use_container_width=True)
